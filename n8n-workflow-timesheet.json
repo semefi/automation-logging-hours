@@ -16,9 +16,7 @@
       "webhookId": "timesheet-batch"
     },
     {
-      "parameters": {
-        "noButtonTriggeredMessage": "Workflow started manually"
-      },
+      "parameters": {},
       "id": "manual-trigger",
       "name": "Manual Trigger",
       "type": "n8n-nodes-base.manualTrigger",
@@ -27,14 +25,12 @@
     },
     {
       "parameters": {
-        "mode": "raw",
-        "jsonOutput": "={{ JSON.stringify($('Webhook').isExecuted ? $('Webhook').first().json.body.entries : [\n  {\"date\": \"2026-03-24\", \"description\": \"Example task\", \"hours\": 8}\n]) }}",
-        "options": {}
+        "jsCode": "// When triggered by webhook, use the entries from the request body.\n// When triggered manually, use the example entries below.\nlet entries;\n\ntry {\n  const webhookData = $('Webhook').first().json;\n  entries = webhookData.body ? webhookData.body.entries : webhookData.entries;\n} catch (e) {\n  entries = null;\n}\n\nif (!entries || !Array.isArray(entries) || entries.length === 0) {\n  // Example entries for manual testing\n  entries = [\n    {\"date\": \"2026-03-24\", \"description\": \"Example task\", \"hours\": 8}\n  ];\n}\n\nreturn entries.map(e => ({ json: e }));"
       },
-      "id": "set-entries",
+      "id": "get-entries",
       "name": "Get Entries",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3.4,
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [480, 400]
     },
     {
@@ -81,22 +77,19 @@
     },
     {
       "parameters": {
-        "options": {}
+        "amount": 2,
+        "unit": "seconds"
       },
       "id": "wait",
       "name": "Wait 2s",
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
-      "position": [1360, 400],
-      "parameters": {
-        "amount": 2,
-        "unit": "seconds"
-      }
+      "position": [1360, 400]
     },
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ JSON.stringify({\"ok\": true, \"processed\": $('Loop Over Entries').first().json.totalItems || 0}) }}",
+        "responseBody": "={{ JSON.stringify({\"ok\": true, \"message\": \"Timesheet entries processed\"}) }}",
         "options": {}
       },
       "id": "response",
