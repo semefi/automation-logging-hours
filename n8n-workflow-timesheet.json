@@ -25,16 +25,6 @@
     },
     {
       "parameters": {
-        "jsCode": "// When triggered by webhook, use the entries from the request body.\n// When triggered manually, use the example entries below.\nlet entries;\n\ntry {\n  const webhookData = $('Webhook').first().json;\n  entries = webhookData.body ? webhookData.body.entries : webhookData.entries;\n} catch (e) {\n  entries = null;\n}\n\nif (!entries || !Array.isArray(entries) || entries.length === 0) {\n  // Example entries for manual testing\n  entries = [\n    {\"date\": \"2026-03-24\", \"description\": \"Example task\", \"hours\": 8}\n  ];\n}\n\nreturn entries.map(e => ({ json: e }));"
-      },
-      "id": "get-entries",
-      "name": "Get Entries",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [480, 400]
-    },
-    {
-      "parameters": {
         "method": "POST",
         "url": "http://playwright-runner:8000/get-erp-token",
         "options": {
@@ -45,6 +35,16 @@
       "name": "Get ERP Token",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
+      "position": [480, 400]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get entries from webhook body, or use example for manual trigger\nlet entries;\n\ntry {\n  const webhookData = $('Webhook').first().json;\n  entries = webhookData.body ? webhookData.body.entries : webhookData.entries;\n} catch (e) {\n  entries = null;\n}\n\nif (!entries || !Array.isArray(entries) || entries.length === 0) {\n  entries = [\n    {\"date\": \"2026-03-24\", \"description\": \"Example task\", \"hours\": 8}\n  ];\n}\n\n// Attach the ERP token to each entry\nconst token = $('Get ERP Token').first().json.erp_bearer_token;\n\nreturn entries.map(e => ({ json: { ...e, erp_bearer_token: token } }));"
+      },
+      "id": "get-entries",
+      "name": "Build Entries",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
       "position": [700, 400]
     },
     {
@@ -64,7 +64,7 @@
         "url": "http://playwright-runner:8000/run-timesheet",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"erp_bearer_token\": \"{{ $('Get ERP Token').first().json.erp_bearer_token }}\",\n  \"email\": \"sebastian.mendez@developers.net\",\n  \"user_id\": 3189,\n  \"client_id\": 56,\n  \"date\": \"{{ $json.date }}\",\n  \"description\": \"{{ $json.description }}\",\n  \"hours_product_development\": {{ $json.hours || $json.hours_product_development || 8 }},\n  \"hours_product_support\": {{ $json.hours_product_support || 0 }},\n  \"hours_client_support\": {{ $json.hours_client_support || 0 }},\n  \"is_overtime\": {{ $json.is_overtime || false }},\n  \"is_holiday\": {{ $json.is_holiday || false }},\n  \"is_other_not_paid\": {{ $json.is_other_not_paid || false }},\n  \"dry_run\": {{ $json.dry_run || false }},\n  \"verbose\": false\n}",
+        "jsonBody": "={\n  \"erp_bearer_token\": \"{{ $json.erp_bearer_token }}\",\n  \"email\": \"sebastian.mendez@developers.net\",\n  \"user_id\": 3189,\n  \"client_id\": 56,\n  \"date\": \"{{ $json.date }}\",\n  \"description\": \"{{ $json.description }}\",\n  \"hours_product_development\": {{ $json.hours || $json.hours_product_development || 8 }},\n  \"hours_product_support\": {{ $json.hours_product_support || 0 }},\n  \"hours_client_support\": {{ $json.hours_client_support || 0 }},\n  \"is_overtime\": {{ $json.is_overtime || false }},\n  \"is_holiday\": {{ $json.is_holiday || false }},\n  \"is_other_not_paid\": {{ $json.is_other_not_paid || false }},\n  \"dry_run\": {{ $json.dry_run || false }},\n  \"verbose\": false\n}",
         "options": {
           "timeout": 300000
         }
@@ -102,20 +102,20 @@
   "connections": {
     "Webhook": {
       "main": [
-        [{"node": "Get Entries", "type": "main", "index": 0}]
+        [{"node": "Get ERP Token", "type": "main", "index": 0}]
       ]
     },
     "Manual Trigger": {
-      "main": [
-        [{"node": "Get Entries", "type": "main", "index": 0}]
-      ]
-    },
-    "Get Entries": {
       "main": [
         [{"node": "Get ERP Token", "type": "main", "index": 0}]
       ]
     },
     "Get ERP Token": {
+      "main": [
+        [{"node": "Build Entries", "type": "main", "index": 0}]
+      ]
+    },
+    "Build Entries": {
       "main": [
         [{"node": "Loop Over Entries", "type": "main", "index": 0}]
       ]
