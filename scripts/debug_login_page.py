@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Debug: inspect the ERP login page to find the Google sign-in button."""
+"""Debug: click Google login and see what happens next."""
 import time
 from playwright.sync_api import sync_playwright
 
@@ -11,27 +11,37 @@ with sync_playwright() as pw:
     )
     page = ctx.pages[0] if ctx.pages else ctx.new_page()
     page.goto("https://erp.developers.net/", wait_until="domcontentloaded")
-    time.sleep(3)
+    time.sleep(2)
+    print("1) URL after nav:", page.url)
 
-    print("URL:", page.url)
+    # Click Google button
+    btn = page.locator("button:has-text('Google')")
+    if btn.count() > 0:
+        btn.first.click(timeout=5000)
+        print("2) Clicked Google button")
+    else:
+        print("2) No Google button found")
 
-    buttons = page.query_selector_all(
-        "button, a[href*=google], a[href*=oauth], a[href*=login], "
-        "[class*=google], [class*=signin], [class*=Google]"
-    )
-    print("BUTTONS:", [b.text_content().strip() for b in buttons])
+    # Wait and check where we end up
+    time.sleep(5)
+    print("3) URL after click:", page.url)
 
-    links = page.query_selector_all("a")
-    print("ALL_LINKS:", [
-        (a.text_content().strip(), a.get_attribute("href"))
-        for a in links if a.text_content().strip()
-    ])
+    # Check all pages/tabs
+    for i, p in enumerate(ctx.pages):
+        print(f"4) Tab {i}: {p.url}")
 
-    # Also dump all clickable elements with "google" or "sign" in text
-    all_clickable = page.query_selector_all("button, a, [role=button], input[type=submit]")
-    print("ALL_CLICKABLE:", [
-        (el.text_content().strip(), el.get_attribute("class") or "")
-        for el in all_clickable if el.text_content().strip()
-    ])
+    # If on Google page, look for account selector
+    current = page if "google" in page.url else None
+    for p in ctx.pages:
+        if "google" in p.url:
+            current = p
+            break
+
+    if current and "google" in current.url:
+        print("5) On Google page. HTML snippet:")
+        print(current.content()[:3000])
+    else:
+        print("5) Not on Google page. Current page HTML snippet:")
+        print(page.content()[:3000])
 
     ctx.close()
