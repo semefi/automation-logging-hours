@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""Debug: click the Google Sign-In iframe button."""
+"""Debug: try OAuth flow directly using Google session cookies."""
 import time
+import json
 from playwright.sync_api import sync_playwright
+
+CLIENT_ID = "954028736401-f68r8k7hn8h5kmu5n6lhm7uf74qcfrn6.apps.googleusercontent.com"
 
 with sync_playwright() as pw:
     ctx = pw.chromium.launch_persistent_context(
@@ -10,53 +13,39 @@ with sync_playwright() as pw:
         args=["--disable-blink-features=AutomationControlled"],
     )
     page = ctx.pages[0] if ctx.pages else ctx.new_page()
-    page.goto("https://erp.developers.net/", wait_until="networkidle")
-    time.sleep(5)
-    print("1) URL:", page.url)
 
-    # Find the Google Sign-In iframe
-    gsi_frame = None
-    for f in page.frames:
-        if "accounts.google.com/gsi" in f.url:
-            gsi_frame = f
-            break
+    # Navigate directly to Google OAuth consent endpoint
+    # This should auto-authenticate if Google session cookies are valid
+    oauth_url = (
+        "https://accounts.google.com/o/oauth2/v2/auth?"
+        f"client_id={CLIENT_ID}&"
+        "response_type=id_token&"
+        "scope=openid%20email%20profile&"
+        "redirect_uri=https://erp.developers.net/&"
+        "nonce=debug123&"
+        "prompt=none"
+    )
 
-    if not gsi_frame:
-        print("2) Google Sign-In iframe NOT found")
-        ctx.close()
-        raise SystemExit(1)
+    print("1) Navigating to OAuth URL...")
+    resp = page.goto(oauth_url, wait_until="networkidle")
+    time.sleep(3)
 
-    print("2) Found GSI iframe:", gsi_frame.url[:100])
+    final_url = page.url
+    print(f"2) Final URL: {final_url[:200]}")
 
-    # Click inside the iframe (the entire iframe is the button)
-    try:
-        # The iframe content is a single button/div that's clickable
-        gsi_frame.locator("div[role=button]").first.click(timeout=5000)
-        print("3) Clicked div[role=button] inside iframe")
-    except Exception as e1:
-        print(f"3) div[role=button] failed: {e1}")
-        try:
-            # Fallback: click the iframe element itself from parent
-            page.locator("iframe[id^='gsi_']").click(timeout=5000)
-            print("3) Clicked iframe element directly")
-        except Exception as e2:
-            print(f"3) iframe click also failed: {e2}")
-
-    # Wait and see what happens
-    time.sleep(8)
-    print("4) URL after click:", page.url)
-    print(f"5) Total pages/tabs: {len(ctx.pages)}")
-    for i, p in enumerate(ctx.pages):
-        print(f"   Tab {i}: {p.url}")
-
-    # Check if we got to Google OAuth
-    for p in ctx.pages:
-        if "accounts.google.com" in p.url and "/gsi/" not in p.url:
-            print("6) On Google OAuth page!")
-            print("   Content:", p.inner_text("body")[:1000])
-            break
+    # Check if we got redirected back with a token
+    if "id_token=" in final_url:
+        print("3) SUCCESS - Got id_token in redirect!")
+        # Extract token from URL fragment
+        fragment = final_url.split("#", 1)[1] if "#" in final_url else ""
+        params = dict(p.split("=", 1) for p in fragment.split("&") if "=" in p)
+        token = params.get("id_token", "")
+        print(f"   Token (first 50 chars): {token[:50]}...")
+    elif "error=" in final_url:
+        fragment = final_url.split("#", 1)[1] if "#" in final_url else final_url.split("?", 1)[1] if "?" in final_url else ""
+        print(f"3) OAuth error: {fragment[:300]}")
     else:
-        print("6) Did not reach Google OAuth page")
-        print("   Current page text:", page.inner_text("body")[:500])
+        print("3) No token in URL. Page content:")
+        print(page.inner_text("body")[:1500])
 
     ctx.close()
