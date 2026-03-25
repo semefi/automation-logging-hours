@@ -5,6 +5,7 @@ WORKDIR /app
 COPY ./requirements-runner.txt /app/requirements-runner.txt
 RUN pip install --no-cache-dir -r /app/requirements-runner.txt
 RUN playwright install --with-deps chromium
+RUN apt-get update && apt-get install -y xvfb xauth && rm -rf /var/lib/apt/lists/*
 
 COPY ./scripts /app/scripts
 COPY ./runner_api.py /app/runner_api.py

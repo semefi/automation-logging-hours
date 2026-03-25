@@ -39,8 +39,11 @@ def _run_python_script(
     if extra_env:
         env.update(extra_env)
 
+    # Use xvfb-run to provide a virtual display for FedCM/headed browser features
+    xvfb_cmd = ["xvfb-run", "--auto-servernum", "--server-args=-screen 0 1280x960x24"] + cmd
+
     return subprocess.run(
-        cmd,
+        xvfb_cmd,
         capture_output=True,
         text=True,
         env=env,
