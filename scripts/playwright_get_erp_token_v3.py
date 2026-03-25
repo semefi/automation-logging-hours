@@ -467,43 +467,6 @@ def run(playwright: Playwright) -> dict[str, Any]:
         # ── Espera ────────────────────────────────────────────────────────
         got_token = state.wait_for_bearer(timeout=float(max_wait_sec))
 
-        # ── Estrategia 3: forzar re-login cuando hay bearer pero no Google ID token ──
-        # Si la sesión estaba activa, capturamos el bearer desde headers pero
-        # nunca se disparó el flujo OAuth de Google → google_id_token es None.
-        # Limpiamos cookies/storage y re-navegamos para forzar el flujo completo.
-        if state.erp_bearer_token and not state.google_id_token:
-            log.info("Bearer capturado pero sin Google ID token. Forzando re-login...")
-            state.notes.append("Sesión activa reutilizada sin OAuth. Forzando re-login.")
-
-            # Resetear estado para la segunda pasada
-            old_bearer = state.erp_bearer_token
-            state.erp_bearer_token = None
-            state.erp_bearer_payload = {}
-            state._token_ready.clear()
-            state.login_request_seen = False
-            state.login_response_seen = False
-            state.login_request_summary = None
-            state.login_response_summary = None
-
-            # Limpiar cookies y storage para forzar el flujo OAuth
-            context.clear_cookies()
-            try:
-                page.evaluate("localStorage.clear(); sessionStorage.clear();")
-            except Exception:  # noqa: BLE001
-                pass
-
-            try:
-                page.goto(app_url, wait_until="domcontentloaded")
-            except Exception as exc:  # noqa: BLE001
-                log.warning("Advertencia en re-navegación: %s", exc)
-
-            got_token = state.wait_for_bearer(timeout=float(max_wait_sec))
-
-            # Si el re-login no produjo un nuevo bearer, restaurar el anterior
-            if not state.erp_bearer_token:
-                log.warning("Re-login no produjo un nuevo bearer. Restaurando el anterior.")
-                state.set_erp_bearer(old_bearer)
-
         if not got_token:
             log.error(
                 "Timeout de %ds alcanzado sin capturar el Bearer token. "

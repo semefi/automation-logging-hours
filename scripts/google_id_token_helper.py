@@ -33,12 +33,19 @@ def main() -> int:
         return 2
 
     id_token = data.get("google_id_token")
-    if not isinstance(id_token, str) or not id_token.strip():
-        print(f"No se encontró google_id_token en la salida: {stdout[:1000]}", file=sys.stderr)
-        return 3
+    erp_bearer = data.get("erp_bearer_token")
 
-    print(json.dumps({"idToken": id_token}, ensure_ascii=False))
-    return 0
+    if isinstance(id_token, str) and id_token.strip():
+        print(json.dumps({"idToken": id_token}, ensure_ascii=False))
+        return 0
+
+    # Sesión activa: no hubo flujo OAuth pero Playwright capturó el bearer directamente
+    if isinstance(erp_bearer, str) and erp_bearer.strip():
+        print(json.dumps({"erpBearerToken": erp_bearer}, ensure_ascii=False))
+        return 0
+
+    print(f"No se encontró google_id_token ni erp_bearer_token en la salida: {stdout[:1000]}", file=sys.stderr)
+    return 3
 
 if __name__ == "__main__":
     raise SystemExit(main())

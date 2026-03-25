@@ -588,14 +588,32 @@ class ERPTokenManager:
             ) from exc
 
         id_token = data.get("idToken")
-        if not isinstance(id_token, str) or not id_token.strip():
-            raise TokenHelperError("El helper no devolvió un campo idToken válido.")
+        erp_bearer = data.get("erpBearerToken")
 
-        logging.info("Google idToken obtenido correctamente.")
-        return id_token
+        if isinstance(id_token, str) and id_token.strip():
+            logging.info("Google idToken obtenido correctamente.")
+            return {"idToken": id_token}
+
+        if isinstance(erp_bearer, str) and erp_bearer.strip():
+            logging.info("ERP bearer obtenido directamente desde sesión activa.")
+            return {"erpBearerToken": erp_bearer}
+
+        raise TokenHelperError("El helper no devolvió idToken ni erpBearerToken válido.")
 
     def refresh_erp_token(self) -> ERPToken:
-        id_token = self.get_google_id_token_from_helper()
+        helper_result = self.get_google_id_token_from_helper()
+
+        if "erpBearerToken" in helper_result:
+            # Sesión activa: Playwright capturó el bearer directamente
+            token = helper_result["erpBearerToken"]
+            exp = decode_jwt_exp(token)
+            erp_token = ERPToken(token=token, exp=exp)
+            logging.info("Usando ERP bearer capturado por Playwright. Expira en %s", erp_token.expires_at_iso)
+            self.save_token(erp_token)
+            return erp_token
+
+        # Flujo normal: login con Google ID token
+        id_token = helper_result["idToken"]
         erp_token = self.client.login_with_google_id_token(self.email, id_token)
         self.save_token(erp_token)
         return erp_token
