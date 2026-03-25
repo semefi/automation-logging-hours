@@ -372,6 +372,22 @@ def _try_extract_from_storage(page: Page, state: CaptureState) -> bool:
     return False
 
 
+def _try_click_google_login(page: Page, state: CaptureState) -> None:
+    """Si la página es el login del ERP, clickea el botón de Google para iniciar OAuth."""
+    try:
+        if "/user/login" not in page.url.lower():
+            return
+        btn = page.locator("button:has-text('Google')")
+        if btn.count() > 0:
+            btn.first.click(timeout=5_000)
+            log.info("🔑 Click en botón 'Google credentials' en página de login")
+            state.notes.append("Auto-click en botón de Google login.")
+            # Esperar a que la navegación al OAuth de Google se complete
+            page.wait_for_timeout(3_000)
+    except Exception as exc:  # noqa: BLE001
+        log.debug("No se pudo clickear botón de Google login: %s", exc)
+
+
 def _attach_auth_header_capture(context, state: CaptureState) -> None:
     """Intercepta cualquier request con Authorization header para capturar el Bearer.
     Útil cuando el token no está en storage sino solo en memoria del SPA."""
@@ -439,6 +455,9 @@ def run(playwright: Playwright) -> dict[str, Any]:
         except Exception as exc:  # noqa: BLE001
             log.warning("Advertencia en navegación inicial: %s", exc)
             state.notes.append(f"Advertencia en navegación inicial: {exc}")
+
+        # ── Autoclick: si estamos en la página de login, clickear "Google credentials" ──
+        _try_click_google_login(page, state)
 
         # ── Estrategia 1: sesión activa → polling de storage (hasta 8s) ────
         # El SPA puede escribir el token 1-3s después de cargar. Una sola
