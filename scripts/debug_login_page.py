@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Debug: click Google login and see what happens next."""
+"""Debug: find the Google login button on ERP login page."""
 import time
 from playwright.sync_api import sync_playwright
 
@@ -10,38 +10,30 @@ with sync_playwright() as pw:
         args=["--disable-blink-features=AutomationControlled"],
     )
     page = ctx.pages[0] if ctx.pages else ctx.new_page()
-    page.goto("https://erp.developers.net/", wait_until="domcontentloaded")
-    time.sleep(2)
-    print("1) URL after nav:", page.url)
-
-    # Click Google button
-    btn = page.locator("button:has-text('Google')")
-    if btn.count() > 0:
-        btn.first.click(timeout=5000)
-        print("2) Clicked Google button")
-    else:
-        print("2) No Google button found")
-
-    # Wait and check where we end up
+    page.goto("https://erp.developers.net/", wait_until="networkidle")
     time.sleep(5)
-    print("3) URL after click:", page.url)
+    print("URL:", page.url)
 
-    # Check all pages/tabs
-    for i, p in enumerate(ctx.pages):
-        print(f"4) Tab {i}: {p.url}")
+    # Dump all visible text and interactive elements
+    print("\n--- ALL BUTTONS ---")
+    for el in page.query_selector_all("button"):
+        print(f"  button: text='{el.text_content().strip()}' class='{el.get_attribute('class') or ''}' id='{el.get_attribute('id') or ''}'")
 
-    # If on Google page, look for account selector
-    current = page if "google" in page.url else None
-    for p in ctx.pages:
-        if "google" in p.url:
-            current = p
-            break
+    print("\n--- ALL INPUTS ---")
+    for el in page.query_selector_all("input"):
+        print(f"  input: type='{el.get_attribute('type')}' value='{el.get_attribute('value') or ''}' placeholder='{el.get_attribute('placeholder') or ''}'")
 
-    if current and "google" in current.url:
-        print("5) On Google page. HTML snippet:")
-        print(current.content()[:3000])
-    else:
-        print("5) Not on Google page. Current page HTML snippet:")
-        print(page.content()[:3000])
+    print("\n--- ALL DIVS/SPANS WITH CLICK OR GOOGLE ---")
+    for el in page.query_selector_all("div, span, a"):
+        text = (el.text_content() or "").strip()
+        cls = el.get_attribute("class") or ""
+        onclick = el.get_attribute("onclick") or ""
+        role = el.get_attribute("role") or ""
+        if any(kw in (text + cls + onclick + role).lower() for kw in ["google", "click", "login", "sign", "btn", "button"]):
+            tag = el.evaluate("el => el.tagName")
+            print(f"  {tag}: text='{text[:80]}' class='{cls[:80]}' role='{role}'")
+
+    print("\n--- PAGE TEXT (first 2000 chars) ---")
+    print(page.inner_text("body")[:2000])
 
     ctx.close()
