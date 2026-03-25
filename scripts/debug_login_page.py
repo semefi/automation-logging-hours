@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Debug: try OAuth flow directly using Google session cookies."""
+"""Debug: get Google ID token via programmatic GSI credential request."""
 import time
 import json
 from playwright.sync_api import sync_playwright
@@ -14,38 +14,49 @@ with sync_playwright() as pw:
     )
     page = ctx.pages[0] if ctx.pages else ctx.new_page()
 
-    # Navigate directly to Google OAuth consent endpoint
-    # This should auto-authenticate if Google session cookies are valid
-    oauth_url = (
-        "https://accounts.google.com/o/oauth2/v2/auth?"
+    # First check if Google session cookies exist
+    cookies = ctx.cookies("https://accounts.google.com")
+    google_cookies = [c["name"] for c in cookies]
+    print(f"1) Google cookies: {google_cookies}")
+    has_session = any(c in google_cookies for c in ["SID", "SSID", "HSID", "APISID", "SAPISID"])
+    print(f"   Has Google session: {has_session}")
+
+    if not has_session:
+        print("NO GOOGLE SESSION - need manual login first")
+        ctx.close()
+        raise SystemExit(1)
+
+    # Navigate to a Google page first to activate cookies
+    page.goto("https://accounts.google.com/", wait_until="networkidle")
+    time.sleep(2)
+    print(f"2) Google account page URL: {page.url}")
+    print(f"   Page text: {page.inner_text('body')[:300]}")
+
+    # Try the GSI iframe approach - get credential via the endpoint
+    # that the ERP's GSI library would normally call
+    print("\n3) Trying GSI credential endpoint...")
+    gsi_url = (
+        "https://accounts.google.com/gsi/select?"
         f"client_id={CLIENT_ID}&"
-        "response_type=id_token&"
-        "scope=openid%20email%20profile&"
-        "redirect_uri=https://erp.developers.net/&"
-        "nonce=debug123&"
-        "prompt=none"
+        "ux_mode=popup&"
+        "ui_mode=card&"
+        "as=1&"
+        "context=signin"
     )
-
-    print("1) Navigating to OAuth URL...")
-    resp = page.goto(oauth_url, wait_until="networkidle")
+    page.goto(gsi_url, wait_until="networkidle")
     time.sleep(3)
+    print(f"   URL: {page.url}")
+    print(f"   Content: {page.inner_text('body')[:500]}")
 
-    final_url = page.url
-    print(f"2) Final URL: {final_url[:200]}")
-
-    # Check if we got redirected back with a token
-    if "id_token=" in final_url:
-        print("3) SUCCESS - Got id_token in redirect!")
-        # Extract token from URL fragment
-        fragment = final_url.split("#", 1)[1] if "#" in final_url else ""
-        params = dict(p.split("=", 1) for p in fragment.split("&") if "=" in p)
-        token = params.get("id_token", "")
-        print(f"   Token (first 50 chars): {token[:50]}...")
-    elif "error=" in final_url:
-        fragment = final_url.split("#", 1)[1] if "#" in final_url else final_url.split("?", 1)[1] if "?" in final_url else ""
-        print(f"3) OAuth error: {fragment[:300]}")
-    else:
-        print("3) No token in URL. Page content:")
-        print(page.inner_text("body")[:1500])
+    # Check for any credential/token in the page
+    html = page.content()
+    if "credential" in html.lower():
+        print("   Found 'credential' in page HTML!")
+        # Look for hidden inputs or data attributes
+        inputs = page.query_selector_all("input")
+        for inp in inputs:
+            name = inp.get_attribute("name") or ""
+            val = inp.get_attribute("value") or ""
+            print(f"   input: name='{name}' value='{val[:80]}...'")
 
     ctx.close()
