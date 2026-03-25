@@ -1,0 +1,150 @@
+{
+  "name": "ERP Timesheet Batch",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "timesheet",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "timesheet-batch"
+    },
+    {
+      "parameters": {
+        "noButtonTriggeredMessage": "Workflow started manually"
+      },
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 520]
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={{ JSON.stringify($('Webhook').isExecuted ? $('Webhook').first().json.body.entries : [\n  {\"date\": \"2026-03-24\", \"description\": \"Example task\", \"hours\": 8}\n]) }}",
+        "options": {}
+      },
+      "id": "set-entries",
+      "name": "Get Entries",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [480, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://playwright-runner:8000/get-erp-token",
+        "options": {
+          "timeout": 180000
+        }
+      },
+      "id": "get-token",
+      "name": "Get ERP Token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [700, 400]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "loop",
+      "name": "Loop Over Entries",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [920, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://playwright-runner:8000/run-timesheet",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"erp_bearer_token\": \"{{ $('Get ERP Token').first().json.erp_bearer_token }}\",\n  \"email\": \"sebastian.mendez@developers.net\",\n  \"user_id\": 3189,\n  \"client_id\": 56,\n  \"date\": \"{{ $json.date }}\",\n  \"description\": \"{{ $json.description }}\",\n  \"hours_product_development\": {{ $json.hours || $json.hours_product_development || 8 }},\n  \"hours_product_support\": {{ $json.hours_product_support || 0 }},\n  \"hours_client_support\": {{ $json.hours_client_support || 0 }},\n  \"is_overtime\": {{ $json.is_overtime || false }},\n  \"is_holiday\": {{ $json.is_holiday || false }},\n  \"is_other_not_paid\": {{ $json.is_other_not_paid || false }},\n  \"dry_run\": {{ $json.dry_run || false }},\n  \"verbose\": false\n}",
+        "options": {
+          "timeout": 300000
+        }
+      },
+      "id": "run-timesheet",
+      "name": "Submit Timesheet",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1140, 400]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "wait",
+      "name": "Wait 2s",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1360, 400],
+      "parameters": {
+        "amount": 2,
+        "unit": "seconds"
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({\"ok\": true, \"processed\": $('Loop Over Entries').first().json.totalItems || 0}) }}",
+        "options": {}
+      },
+      "id": "response",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1140, 600]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [{"node": "Get Entries", "type": "main", "index": 0}]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [{"node": "Get Entries", "type": "main", "index": 0}]
+      ]
+    },
+    "Get Entries": {
+      "main": [
+        [{"node": "Get ERP Token", "type": "main", "index": 0}]
+      ]
+    },
+    "Get ERP Token": {
+      "main": [
+        [{"node": "Loop Over Entries", "type": "main", "index": 0}]
+      ]
+    },
+    "Loop Over Entries": {
+      "main": [
+        [{"node": "Submit Timesheet", "type": "main", "index": 0}],
+        [{"node": "Respond to Webhook", "type": "main", "index": 0}]
+      ]
+    },
+    "Submit Timesheet": {
+      "main": [
+        [{"node": "Wait 2s", "type": "main", "index": 0}]
+      ]
+    },
+    "Wait 2s": {
+      "main": [
+        [{"node": "Loop Over Entries", "type": "main", "index": 0}]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
