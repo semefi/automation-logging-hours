@@ -1,0 +1,12 @@
+FROM python:3.12-bookworm
+
+WORKDIR /app
+
+COPY ./requirements-runner.txt /app/requirements-runner.txt
+RUN pip install --no-cache-dir -r /app/requirements-runner.txt
+RUN playwright install --with-deps chromium
+
+COPY ./scripts /app/scripts
+COPY ./runner_api.py /app/runner_api.py
+
+CMD ["uvicorn", "runner_api:app", "--host", "0.0.0.0", "--port", "8000"]
