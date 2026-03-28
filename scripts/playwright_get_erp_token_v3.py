@@ -535,8 +535,15 @@ def run(playwright: Playwright) -> dict[str, Any]:
                 state.erp_bearer_payload = {}
                 state._token_ready.clear()
 
-                # Limpiar sesión del browser
-                context.clear_cookies()
+                # Limpiar solo cookies del ERP (preservar cookies de Google para OAuth)
+                all_cookies = context.cookies()
+                erp_cookies = [c for c in all_cookies if "erp.developers.net" in c.get("domain", "")]
+                if erp_cookies:
+                    context.clear_cookies()
+                    # Re-agregar las cookies que NO son del ERP
+                    non_erp = [c for c in all_cookies if "erp.developers.net" not in c.get("domain", "")]
+                    if non_erp:
+                        context.add_cookies(non_erp)
                 try:
                     page.evaluate("try { localStorage.clear(); sessionStorage.clear(); } catch(e) {}")
                 except Exception:  # noqa: BLE001
