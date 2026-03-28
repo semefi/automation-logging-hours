@@ -608,6 +608,11 @@ class ERPTokenManager:
             token = helper_result["erpBearerToken"]
             exp = decode_jwt_exp(token)
             erp_token = ERPToken(token=token, exp=exp)
+            if not erp_token.is_valid():
+                raise AuthExpiredError(
+                    f"El bearer capturado por Playwright ya expiró en {erp_token.expires_at_iso}. "
+                    "Requiere re-login manual via VNC."
+                )
             logging.info("Usando ERP bearer capturado por Playwright. Expira en %s", erp_token.expires_at_iso)
             self.save_token(erp_token)
             return erp_token

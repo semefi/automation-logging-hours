@@ -373,17 +373,47 @@ def _try_extract_from_storage(page: Page, state: CaptureState) -> bool:
 
 
 def _try_click_google_login(page: Page, state: CaptureState) -> None:
-    """Si la página es el login del ERP, clickea el botón de Google para iniciar OAuth."""
+    """Si la página es el login del ERP, clickea el botón de Google Sign-In para iniciar OAuth."""
     try:
         if "/user/login" not in page.url.lower():
             return
+
+        page.wait_for_timeout(2_000)  # Esperar a que el iframe de GSI cargue
+
+        # El botón de Google Sign-In es un iframe de accounts.google.com/gsi
+        gsi_frame = None
+        for f in page.frames:
+            if "accounts.google.com/gsi" in f.url:
+                gsi_frame = f
+                break
+
+        if gsi_frame:
+            # Dentro del iframe hay un div[role=button] que es el botón real
+            btn = gsi_frame.locator("div[role=button]")
+            if btn.count() > 0:
+                btn.first.click(timeout=5_000)
+                log.info("🔑 Click en botón GSI iframe en página de login")
+                state.notes.append("Auto-click en iframe de Google Sign-In.")
+                page.wait_for_timeout(5_000)
+                return
+
+        # Fallback: intentar click en el iframe element directamente
+        iframe_loc = page.locator("iframe[id^='gsi_']")
+        if iframe_loc.count() > 0:
+            iframe_loc.first.click(timeout=5_000)
+            log.info("🔑 Click directo en iframe GSI")
+            state.notes.append("Auto-click directo en iframe GSI.")
+            page.wait_for_timeout(5_000)
+            return
+
+        # Fallback: cualquier botón con texto Google
         btn = page.locator("button:has-text('Google')")
         if btn.count() > 0:
             btn.first.click(timeout=5_000)
-            log.info("🔑 Click en botón 'Google credentials' en página de login")
+            log.info("🔑 Click en botón 'Google' en página de login")
             state.notes.append("Auto-click en botón de Google login.")
-            # Esperar a que la navegación al OAuth de Google se complete
             page.wait_for_timeout(3_000)
+
     except Exception as exc:  # noqa: BLE001
         log.debug("No se pudo clickear botón de Google login: %s", exc)
 
@@ -485,6 +515,41 @@ def run(playwright: Playwright) -> dict[str, Any]:
 
         # ── Espera ────────────────────────────────────────────────────────
         got_token = state.wait_for_bearer(timeout=float(max_wait_sec))
+
+        # ── Validar expiración del bearer capturado ──────────────────────
+        # Si el bearer viene de una sesión vieja (headers/storage), puede
+        # estar expirado. En ese caso limpiar la sesión y re-navegar para
+        # forzar un login fresco via Google OAuth.
+        if state.erp_bearer_token and not state.google_id_token:
+            payload = _decode_jwt_payload(state.erp_bearer_token)
+            exp = payload.get("exp", 0)
+            if isinstance(exp, (int, float)) and exp > 0 and time.time() >= exp:
+                log.warning(
+                    "Bearer capturado está expirado (exp=%s). Limpiando sesión para forzar re-login...",
+                    time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(exp)),
+                )
+                state.notes.append("Bearer expirado detectado. Forzando re-login.")
+
+                # Resetear estado
+                state.erp_bearer_token = None
+                state.erp_bearer_payload = {}
+                state._token_ready.clear()
+
+                # Limpiar sesión del browser
+                context.clear_cookies()
+                try:
+                    page.evaluate("try { localStorage.clear(); sessionStorage.clear(); } catch(e) {}")
+                except Exception:  # noqa: BLE001
+                    pass
+
+                # Re-navegar — debería ir a /user/login y disparar Google OAuth
+                try:
+                    page.goto(app_url, wait_until="domcontentloaded")
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("Advertencia en re-navegación: %s", exc)
+
+                _try_click_google_login(page, state)
+                got_token = state.wait_for_bearer(timeout=float(max_wait_sec))
 
         if not got_token:
             log.error(
