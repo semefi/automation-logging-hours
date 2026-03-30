@@ -99,19 +99,21 @@ def get_erp_token():
         "STORAGE_STATE_PATH": os.environ.get("STORAGE_STATE_PATH", "/app/playwright-profile/playwright_storage_state.json"),
         "GOOGLE_ACCOUNT_EMAIL": os.environ.get("GOOGLE_ACCOUNT_EMAIL", "sebastian.mendez@developers.net"),
         "HEADLESS": os.environ.get("HEADLESS", "true"),
-        "MAX_WAIT_SEC": os.environ.get("MAX_WAIT_SEC", "120"),
+        "MAX_WAIT_SEC": os.environ.get("MAX_WAIT_SEC", "240"),
         "NAV_TIMEOUT_MS": os.environ.get("NAV_TIMEOUT_MS", "45000"),
         "MASK_OUTPUT": os.environ.get("MASK_OUTPUT", "false"),
+        "TELEGRAM_BOT_TOKEN": os.environ.get("TELEGRAM_BOT_TOKEN", ""),
+        "TELEGRAM_CHAT_ID": os.environ.get("TELEGRAM_CHAT_ID", ""),
     }
 
     try:
         result = _run_python_script(
             cmd=["python", script_path],
             extra_env=extra_env,
-            timeout=int(os.environ.get("GET_TOKEN_TIMEOUT_SEC", "135")),
+            timeout=int(os.environ.get("GET_TOKEN_TIMEOUT_SEC", "300")),
         )
     except subprocess.TimeoutExpired:
-        raise HTTPException(status_code=504, detail="Playwright token script timed out")
+        raise HTTPException(status_code=504, detail="Playwright token script timed out (MFA may be pending)")
 
     data = _parse_json_stdout(result, "playwright_get_erp_token")
 
@@ -170,7 +172,7 @@ def run_timesheet(payload: TimesheetRequest):
         "STORAGE_STATE_PATH": os.environ.get("STORAGE_STATE_PATH", "/app/playwright-profile/playwright_storage_state.json"),
         "GOOGLE_ACCOUNT_EMAIL": os.environ.get("GOOGLE_ACCOUNT_EMAIL", "sebastian.mendez@developers.net"),
         "HEADLESS": os.environ.get("HEADLESS", "true"),
-        "MAX_WAIT_SEC": os.environ.get("MAX_WAIT_SEC", "120"),
+        "MAX_WAIT_SEC": os.environ.get("MAX_WAIT_SEC", "240"),
         "NAV_TIMEOUT_MS": os.environ.get("NAV_TIMEOUT_MS", "45000"),
         "MASK_OUTPUT": os.environ.get("MASK_OUTPUT", "false"),
         "PLAYWRIGHT_TOKEN_SCRIPT": os.environ.get(

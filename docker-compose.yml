@@ -47,6 +47,9 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
     volumes:
       - ./scripts:/app/scripts:rw
       - ./playwright-profile:/app/playwright-profile:rw

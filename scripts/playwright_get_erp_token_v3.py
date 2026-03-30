@@ -27,6 +27,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+import requests as http_requests
 from playwright.sync_api import Page, Playwright, Request, Response, sync_playwright
 
 # ---------------------------------------------------------------------------
@@ -372,6 +373,114 @@ def _try_extract_from_storage(page: Page, state: CaptureState) -> bool:
     return False
 
 
+def _send_telegram(message: str) -> bool:
+    """Envía un mensaje via Telegram bot. Configurar via env vars."""
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
+    if not token or not chat_id:
+        log.debug("Telegram no configurado (TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID)")
+        return False
+    try:
+        resp = http_requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json={"chat_id": chat_id, "text": message, "parse_mode": "HTML"},
+            timeout=10,
+        )
+        return resp.status_code == 200
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Error enviando Telegram: %s", exc)
+        return False
+
+
+def _monitor_mfa_and_notify(page: Page, state: CaptureState, timeout: float) -> bool:
+    """Monitorea la página de Google MFA, lee el número y lo envía por Telegram.
+    Espera hasta que el usuario complete el MFA o se agote el timeout.
+    Devuelve True si se detectó y notificó MFA."""
+    deadline = time.time() + timeout
+    mfa_number_sent = False
+
+    while time.time() < deadline:
+        # Si ya tenemos el bearer, el login se completó
+        if state.erp_bearer_token:
+            if mfa_number_sent:
+                _send_telegram("✅ MFA completado. ERP token obtenido.")
+            return True
+
+        # Buscar en todas las páginas/frames por el prompt de MFA de Google
+        for p in page.context.pages:
+            try:
+                url = p.url
+            except Exception:
+                continue
+
+            if "accounts.google.com" not in url:
+                continue
+
+            if mfa_number_sent:
+                # Ya enviamos el número, solo esperar a que complete
+                page.wait_for_timeout(2_000)
+                continue
+
+            # Buscar el número de MFA en la página
+            try:
+                body_text = p.inner_text("body")
+            except Exception:
+                continue
+
+            # Google MFA muestra un número de 2 dígitos para confirmar
+            # Buscar patrones como "53" en elementos específicos de la página
+            try:
+                # El número suele estar en un elemento grande/prominente
+                number_elements = p.query_selector_all("[data-challengeid] span, [data-primary-action-label] div, .vdE7Oc, .EZRiwb, .iQ8pMc")
+                for el in number_elements:
+                    text = (el.text_content() or "").strip()
+                    if text.isdigit() and 1 <= len(text) <= 3:
+                        log.info("🔢 MFA número detectado: %s", text)
+                        sent = _send_telegram(
+                            f"🔐 <b>Google MFA requerido</b>\n\n"
+                            f"Número para confirmar: <b>{text}</b>\n\n"
+                            f"Selecciona este número en tu celular para completar el login."
+                        )
+                        if sent:
+                            log.info("📱 Número MFA enviado por Telegram")
+                            state.notes.append(f"MFA número {text} enviado por Telegram.")
+                            mfa_number_sent = True
+                        break
+            except Exception as exc:  # noqa: BLE001
+                log.debug("Error buscando número MFA: %s", exc)
+
+            # Si no encontramos con selectores específicos, buscar en el texto general
+            if not mfa_number_sent:
+                try:
+                    # Buscar números aislados de 2-3 dígitos en el body
+                    import re
+                    # Google MFA shows something like "Tap 53 on your phone"
+                    matches = re.findall(r'\b(\d{2,3})\b', body_text)
+                    # Filtrar: el número MFA suele ser el más prominente
+                    for m in matches:
+                        num = int(m)
+                        if 10 <= num <= 999:
+                            log.info("🔢 Posible MFA número: %s (de texto de página)", m)
+                            sent = _send_telegram(
+                                f"🔐 <b>Google MFA requerido</b>\n\n"
+                                f"Número para confirmar: <b>{m}</b>\n\n"
+                                f"Selecciona este número en tu celular para completar el login."
+                            )
+                            if sent:
+                                log.info("📱 Número MFA enviado por Telegram")
+                                state.notes.append(f"MFA número {m} enviado por Telegram.")
+                                mfa_number_sent = True
+                            break
+                except Exception as exc:  # noqa: BLE001
+                    log.debug("Error buscando MFA en texto: %s", exc)
+
+        page.wait_for_timeout(2_000)
+
+    if mfa_number_sent and not state.erp_bearer_token:
+        _send_telegram("⏰ Timeout esperando confirmación MFA.")
+    return mfa_number_sent
+
+
 def _try_click_google_login(page: Page, state: CaptureState) -> None:
     """Si la página es el login del ERP, clickea el botón de Google Sign-In para iniciar OAuth."""
     try:
@@ -556,7 +665,14 @@ def run(playwright: Playwright) -> dict[str, Any]:
                     log.warning("Advertencia en re-navegación: %s", exc)
 
                 _try_click_google_login(page, state)
-                got_token = state.wait_for_bearer(timeout=float(max_wait_sec))
+
+                # Monitorear MFA de Google y notificar por Telegram
+                _monitor_mfa_and_notify(page, state, timeout=float(max_wait_sec))
+
+                if not state.erp_bearer_token:
+                    got_token = state.wait_for_bearer(timeout=10)
+                else:
+                    got_token = True
 
         if not got_token:
             log.error(
